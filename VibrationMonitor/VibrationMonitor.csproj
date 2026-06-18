@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net6.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>VibrationMonitor</AssemblyName>
+    <RootNamespace>VibrationMonitor</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- WinUSB 通过 winusb.dll / setupapi.dll P/Invoke 直接访问，无第三方依赖 -->
+    <PackageReference Include="LibUsbDotNet" Version="3.0.102-alpha" />
+    <PackageReference Include="OxyPlot.Wpf" Version="2.1.2" />
+  </ItemGroup>
+
+</Project>

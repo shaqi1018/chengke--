@@ -1,0 +1,32 @@
+# 编译产物
+[Bb]in/
+[Oo]bj/
+*.user
+*.suo
+
+# 录制数据（很大，不入库）
+Recordings/
+**/Recordings/
+
+# 发布产物（含自包含大 exe）
+publish/
+publish37/
+publish*/
+**/publish/
+
+# 工具
+zadig-*.exe
+
+# 原始字节转储
+*.bin
+lsm_raw.bin
+
+# 临时/废弃脚本（乱码版）
+清除libusbK驱动.bat
+
+# IDE / 系统
+.vs/
+.vscode/
+*.cache
+Thumbs.db
+desktop.ini

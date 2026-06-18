@@ -1,0 +1,634 @@
+<Window x:Class="VibrationMonitor.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:oxy="http://oxyplot.org/wpf"
+        Title="Vibration Monitor v14 (WinUSB)" Height="800" Width="1300"
+        WindowStartupLocation="CenterScreen"
+        Background="#f0f2f5"
+        FontFamily="Segoe UI, Microsoft YaHei">
+
+    <Window.Resources>
+        <!--
+            设计系统
+            背景层级: #f0f2f5 < #f8f9fc < #ffffff
+            主色调:   #00796b (teal)
+            文字:     #1a1a2e (标题) #444460 (正文) #8888aa (次要)
+            边框:     #dde0e6
+            状态:     绿 #2e7d32  红 #c62828  橙 #e65100  蓝 #1565c0
+        -->
+
+        <!-- ===== 按钮 ===== -->
+        <Style x:Key="BtnBase" TargetType="Button">
+            <Setter Property="Foreground" Value="#ffffff"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="bd" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="1" CornerRadius="4"
+                                Padding="{TemplateBinding Padding}"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="BorderBrush" Value="#00796b"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="#004d40"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.4"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 默认按钮 (灰) -->
+        <Style x:Key="Btn" TargetType="Button" BasedOn="{StaticResource BtnBase}">
+            <Setter Property="Background" Value="#ffffff"/>
+            <Setter Property="Foreground" Value="#444460"/>
+            <Setter Property="BorderBrush" Value="#dde0e6"/>
+            <Setter Property="Padding" Value="14,7"/>
+        </Style>
+
+        <!-- 主按钮 (teal) -->
+        <Style x:Key="BtnPrimary" TargetType="Button" BasedOn="{StaticResource BtnBase}">
+            <Setter Property="Background" Value="#00796b"/>
+            <Setter Property="BorderBrush" Value="#00796b"/>
+            <Setter Property="Padding" Value="14,7"/>
+        </Style>
+
+        <!-- 成功按钮 (绿) -->
+        <Style x:Key="BtnSuccess" TargetType="Button" BasedOn="{StaticResource BtnBase}">
+            <Setter Property="Background" Value="#2e7d32"/>
+            <Setter Property="BorderBrush" Value="#2e7d32"/>
+            <Setter Property="Padding" Value="14,7"/>
+        </Style>
+
+        <!-- 危险按钮 (红) -->
+        <Style x:Key="BtnDanger" TargetType="Button" BasedOn="{StaticResource BtnBase}">
+            <Setter Property="Background" Value="#c62828"/>
+            <Setter Property="BorderBrush" Value="#c62828"/>
+            <Setter Property="Padding" Value="14,7"/>
+        </Style>
+
+        <!-- 小按钮 -->
+        <Style x:Key="BtnSm" TargetType="Button" BasedOn="{StaticResource Btn}">
+            <Setter Property="Padding" Value="10,4"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+
+        <!-- ===== 文本框 ===== -->
+        <Style x:Key="Tb" TargetType="TextBox">
+            <Setter Property="Background" Value="#ffffff"/>
+            <Setter Property="Foreground" Value="#1a1a2e"/>
+            <Setter Property="BorderBrush" Value="#dde0e6"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="8,5"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="CaretBrush" Value="#1a1a2e"/>
+            <Setter Property="SelectionBrush" Value="#b2dfdb"/>
+        </Style>
+
+        <!-- ===== 下拉框 ===== -->
+        <Style x:Key="Cb" TargetType="ComboBox">
+            <Setter Property="Background" Value="#ffffff"/>
+            <Setter Property="Foreground" Value="#1a1a2e"/>
+            <Setter Property="BorderBrush" Value="#dde0e6"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="8,5"/>
+            <Setter Property="FontSize" Value="13"/>
+        </Style>
+
+        <!-- ===== 标签 ===== -->
+        <Style x:Key="Lbl" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#8888aa"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Margin" Value="0,0,0,4"/>
+        </Style>
+
+        <!-- ===== 卡片 ===== -->
+        <Style x:Key="Card" TargetType="GroupBox">
+            <Setter Property="Foreground" Value="#444460"/>
+            <Setter Property="Margin" Value="0,0,0,10"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="GroupBox">
+                        <Border Background="#ffffff" BorderBrush="#dde0e6" BorderThickness="1" CornerRadius="6">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+                                <Border Grid.Row="0" BorderBrush="#e8eaef" BorderThickness="0,0,0,1"
+                                        Padding="14,9" CornerRadius="5,5,0,0">
+                                    <ContentPresenter ContentSource="Header"/>
+                                </Border>
+                                <Border Grid.Row="1" Padding="14,10">
+                                    <ContentPresenter/>
+                                </Border>
+                            </Grid>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 卡片标题 -->
+        <Style x:Key="CardTitle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#1a1a2e"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+
+        <!-- ===== 日志控制台 ===== -->
+        <Style x:Key="LogListBox" TargetType="ListBox">
+            <Setter Property="Background" Value="#1a1e24"/>
+            <Setter Property="Foreground" Value="#b0bec5"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="FontFamily" Value="Cascadia Code, Consolas"/>
+            <Setter Property="FontSize" Value="11.5"/>
+            <Setter Property="SelectionMode" Value="Extended"/>
+            <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Auto"/>
+            <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto"/>
+            <Setter Property="VirtualizingPanel.IsVirtualizing" Value="True"/>
+            <Setter Property="VirtualizingPanel.VirtualizationMode" Value="Recycling"/>
+        </Style>
+        <Style x:Key="LogItem" TargetType="ListBoxItem">
+            <Setter Property="Foreground" Value="#b0bec5"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Padding" Value="4,1"/>
+            <Setter Property="FontFamily" Value="Cascadia Code, Consolas"/>
+            <Setter Property="FontSize" Value="11.5"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Style.Triggers>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="#263238"/>
+                    <Setter Property="Foreground" Value="#eceff1"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- ===== 分隔线 ===== -->
+        <Style x:Key="Divider" TargetType="Separator">
+            <Setter Property="Background" Value="#e8eaef"/>
+            <Setter Property="Margin" Value="0,10"/>
+            <Setter Property="Height" Value="1"/>
+        </Style>
+
+        <!-- 状态颜色画刷 -->
+        <SolidColorBrush x:Key="ConnectedBrush" Color="#2e7d32"/>
+        <SolidColorBrush x:Key="DisconnectedBrush" Color="#c62828"/>
+
+        <!-- ===== TabControl ===== -->
+        <Style TargetType="TabControl">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="#dde0e6"/>
+            <Setter Property="BorderThickness" Value="0"/>
+        </Style>
+        <Style TargetType="TabItem">
+            <Setter Property="Foreground" Value="#8888aa"/>
+            <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="Padding" Value="14,7"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Border x:Name="bd" Background="Transparent" Padding="{TemplateBinding Padding}"
+                                CornerRadius="4,4,0,0" BorderThickness="1,1,1,0" BorderBrush="Transparent">
+                            <ContentPresenter ContentSource="Header"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="#f0f2f5"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="#ffffff"/>
+                                <Setter TargetName="bd" Property="BorderBrush" Value="#dde0e6"/>
+                                <Setter Property="Foreground" Value="#1a1a2e"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="10">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="260"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- ==================== 左侧面板 ==================== -->
+        <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto" Margin="0,0,10,0">
+            <StackPanel>
+
+                <!-- WinUSB 设备连接 -->
+                <GroupBox Style="{StaticResource Card}">
+                    <GroupBox.Header>
+                        <TextBlock Style="{StaticResource CardTitle}" Text="WinUSB 设备"/>
+                    </GroupBox.Header>
+                    <StackPanel>
+                        <TextBlock Text="检测到的设备 (VID 0483 / PID 5721)" Style="{StaticResource Lbl}"/>
+                        <ComboBox Style="{StaticResource Cb}" Margin="0,0,0,8"
+                                  ItemsSource="{Binding Ports}"
+                                  SelectedItem="{Binding SelectedPort}"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="8"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Button Grid.Column="0" Content="刷新" Style="{StaticResource Btn}"
+                                    Command="{Binding RefreshPortsCommand}"/>
+                            <Button Grid.Column="2" Style="{StaticResource BtnPrimary}"
+                                    Command="{Binding ConnectCommand}"
+                                    Content="{Binding ButtonText}"/>
+                        </Grid>
+                        <!-- 连接状态 -->
+                        <Border Margin="0,10,0,0" CornerRadius="4" Padding="8,5"
+                                HorizontalAlignment="Stretch" BorderThickness="1">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Setter Property="Background" Value="#ffebee"/>
+                                    <Setter Property="BorderBrush" Value="#ffcdd2"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsConnected}" Value="True">
+                                            <Setter Property="Background" Value="#e8f5e9"/>
+                                            <Setter Property="BorderBrush" Value="#c8e6c9"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <StackPanel Orientation="Horizontal">
+                                <Ellipse Width="8" Height="8" Margin="0,0,8,0" VerticalAlignment="Center">
+                                    <Ellipse.Style>
+                                        <Style TargetType="Ellipse">
+                                            <Setter Property="Fill" Value="#c62828"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsConnected}" Value="True">
+                                                    <Setter Property="Fill" Value="#2e7d32"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Ellipse.Style>
+                                </Ellipse>
+                                <TextBlock x:Name="StatusTextBlock" Text="未连接" FontSize="12" VerticalAlignment="Center"
+                                           Foreground="#c62828"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </GroupBox>
+
+                <!-- 采集控制 -->
+                <GroupBox Style="{StaticResource Card}">
+                    <GroupBox.Header>
+                        <TextBlock Style="{StaticResource CardTitle}" Text="采集控制"/>
+                    </GroupBox.Header>
+                    <StackPanel>
+                        <TextBlock Text="输出目标" Style="{StaticResource Lbl}"/>
+                        <ComboBox Style="{StaticResource Cb}" Margin="0,0,0,8"
+                                  SelectedValue="{Binding AcqSink}" SelectedValuePath="Tag">
+                            <ComboBoxItem Content="USB 实时上传" Tag="usb" IsSelected="True"/>
+                            <ComboBoxItem Content="SD 卡存储" Tag="sd"/>
+                        </ComboBox>
+                        <TextBlock Text="采集时长 (秒, 0=无限)" Style="{StaticResource Lbl}"/>
+                        <TextBox Style="{StaticResource Tb}" Text="{Binding AcqDuration}" Margin="0,0,0,10"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="8"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Button Grid.Column="0" Content="开始采集" Style="{StaticResource BtnSuccess}"
+                                    Command="{Binding AcqStartCommand}" IsEnabled="{Binding IsConnected}"/>
+                            <Button Grid.Column="2" Content="停止采集" Style="{StaticResource BtnDanger}"
+                                    Command="{Binding AcqStopCommand}" IsEnabled="{Binding AcqRunning}"/>
+                        </Grid>
+                        <Button Content="导出 CSV 数据" Style="{StaticResource Btn}" Margin="0,8,0,0"
+                                Command="{Binding ExportCsvCommand}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>
+                        <Border Background="#f8f9fc" CornerRadius="4" Padding="8,6" Margin="0,10,0,0"
+                                BorderBrush="#e8eaef" BorderThickness="1">
+                            <StackPanel>
+                                <TextBlock Text="{Binding AcqStateText}" FontSize="12">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Foreground" Value="#e65100"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding AcqRunning}" Value="True">
+                                                    <Setter Property="Foreground" Value="#2e7d32"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                                <TextBlock Text="{Binding FrameCountText}" Foreground="#8888aa" FontSize="11" Margin="0,2,0,0"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </GroupBox>
+
+                <!-- 传感器配置 -->
+                <GroupBox Style="{StaticResource Card}">
+                    <GroupBox.Header>
+                        <TextBlock Style="{StaticResource CardTitle}" Text="传感器配置"/>
+                    </GroupBox.Header>
+                    <StackPanel>
+                        <!-- LSM6DSOX -->
+                        <Border Background="#e0f2f1" CornerRadius="4" Padding="10,5" Margin="0,0,0,8">
+                            <TextBlock Text="LSM6DSOX" Foreground="#00695c" FontWeight="SemiBold" FontSize="12"/>
+                        </Border>
+                        <Grid Margin="0,0,0,6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="38"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="48"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition/>
+                                <RowDefinition Height="6"/>
+                                <RowDefinition/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="ODR" Style="{StaticResource Lbl}" VerticalAlignment="Center"/>
+                            <ComboBox Grid.Row="0" Grid.Column="1" Style="{StaticResource Cb}"
+                                      ItemsSource="{Binding LsmOdrValues}" SelectedItem="{Binding LsmOdr}" Margin="0,0,6,0"/>
+                            <Button Grid.Row="0" Grid.Column="2" Content="应用" Style="{StaticResource BtnSm}"
+                                    Command="{Binding ApplyLsmOdrCommand}"/>
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="量程" Style="{StaticResource Lbl}" VerticalAlignment="Center"/>
+                            <ComboBox Grid.Row="2" Grid.Column="1" Style="{StaticResource Cb}"
+                                      ItemsSource="{Binding LsmRangeValues}" SelectedItem="{Binding LsmRange}" Margin="0,0,6,0"/>
+                            <Button Grid.Row="2" Grid.Column="2" Content="应用" Style="{StaticResource BtnSm}"
+                                    Command="{Binding ApplyLsmRangeCommand}"/>
+                        </Grid>
+
+                        <Separator Style="{StaticResource Divider}"/>
+
+                        <!-- H3LIS100DL -->
+                        <Border Background="#fff3e0" CornerRadius="4" Padding="10,5" Margin="0,0,0,8">
+                            <TextBlock Text="H3LIS100DL" Foreground="#e65100" FontWeight="SemiBold" FontSize="12"/>
+                        </Border>
+                        <Grid Margin="0,0,0,6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="38"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="48"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="ODR" Style="{StaticResource Lbl}" VerticalAlignment="Center"/>
+                            <ComboBox Grid.Column="1" Style="{StaticResource Cb}" ItemsSource="{Binding H3OdrValues}"
+                                      SelectedItem="{Binding H3Odr}" Margin="0,0,6,0"/>
+                            <Button Grid.Column="2" Content="应用" Style="{StaticResource BtnSm}"
+                                    Command="{Binding ApplyH3OdrCommand}"/>
+                        </Grid>
+
+                        <Separator Style="{StaticResource Divider}"/>
+
+                        <!-- QMA6100P -->
+                        <Border Background="#e8f5e9" CornerRadius="4" Padding="10,5" Margin="0,0,0,8">
+                            <TextBlock Text="QMA6100P" Foreground="#2e7d32" FontWeight="SemiBold" FontSize="12"/>
+                        </Border>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="38"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="48"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="ODR" Style="{StaticResource Lbl}" VerticalAlignment="Center"/>
+                            <ComboBox Grid.Row="0" Grid.Column="1" Style="{StaticResource Cb}" ItemsSource="{Binding QmaOdrValues}"
+                                      SelectedItem="{Binding QmaOdr}" Margin="0,0,6,0"/>
+                            <Button Grid.Row="0" Grid.Column="2" Content="应用" Style="{StaticResource BtnSm}"
+                                    Command="{Binding ApplyQmaOdrCommand}"/>
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="量程" Style="{StaticResource Lbl}" VerticalAlignment="Center"/>
+                            <ComboBox Grid.Row="1" Grid.Column="1" Style="{StaticResource Cb}"
+                                      ItemsSource="{Binding QmaRangeValues}" SelectedItem="{Binding QmaRange}" Margin="0,0,6,0"/>
+                            <Button Grid.Row="1" Grid.Column="2" Content="应用" Style="{StaticResource BtnSm}"
+                                    Command="{Binding ApplyQmaRangeCommand}"/>
+                        </Grid>
+
+                        <Separator Style="{StaticResource Divider}"/>
+
+                        <!-- 麦克风 -->
+                        <Border Background="#e3f2fd" CornerRadius="4" Padding="10,5" Margin="0,0,0,8">
+                            <TextBlock Text="麦克风 (MIC)" Foreground="#1565c0" FontWeight="SemiBold" FontSize="12"/>
+                        </Border>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="38"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="48"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="6"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="6"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="采样" Style="{StaticResource Lbl}" VerticalAlignment="Center"/>
+                            <ComboBox Grid.Row="0" Grid.Column="1" Style="{StaticResource Cb}" ItemsSource="{Binding MicSrValues}"
+                                      SelectedItem="{Binding MicSr}" Margin="0,0,6,0"/>
+                            <Button Grid.Row="0" Grid.Column="2" Content="应用" Style="{StaticResource BtnSm}"
+                                    Command="{Binding ApplyMicSrCommand}"/>
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="增益" Style="{StaticResource Lbl}" VerticalAlignment="Center"/>
+                            <TextBox Grid.Row="2" Grid.Column="1" Style="{StaticResource Tb}"
+                                     Text="{Binding MicGain}" Margin="0,0,6,0"/>
+                            <Button Grid.Row="2" Grid.Column="2" Content="应用" Style="{StaticResource BtnSm}"
+                                    Command="{Binding ApplyMicGainCommand}"/>
+                            <CheckBox Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="2" Content="启用麦克风"
+                                      IsChecked="{Binding MicEnabled}" Foreground="#444460" FontSize="12" VerticalAlignment="Center"/>
+                            <Button Grid.Row="4" Grid.Column="2" Content="应用" Style="{StaticResource BtnSm}"
+                                    Command="{Binding ApplyMicEnCommand}"/>
+                        </Grid>
+                        <TextBlock Text="增益 0–42 dB；配置在下次开始采集时生效" Foreground="#aaaaaa" FontSize="11" Margin="0,6,0,0"/>
+                    </StackPanel>
+                </GroupBox>
+
+                <!-- 系统 -->
+                <GroupBox Style="{StaticResource Card}">
+                    <GroupBox.Header>
+                        <TextBlock Style="{StaticResource CardTitle}" Text="系统"/>
+                    </GroupBox.Header>
+                    <StackPanel>
+                        <Button Content="查询传感器配置 (status)" Style="{StaticResource Btn}"
+                                Command="{Binding StatusCommand}" IsEnabled="{Binding IsConnected}"
+                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>
+                        <Separator Style="{StaticResource Divider}"/>
+                        <Button Content="同步本机时间到 RTC" Style="{StaticResource Btn}"
+                                Command="{Binding SetRtcTimeCommand}" IsEnabled="{Binding IsConnected}"
+                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>
+                        <TextBlock Text="发送当前系统时间 set_time yyyy-MM-ddTHH:mm:ss" Foreground="#aaaaaa" FontSize="11" Margin="0,4,0,10"/>
+                        <Button Content="切换到 MSC 模式 (SD卡当U盘)" Style="{StaticResource BtnDanger}"
+                                Command="{Binding MscCommand}" IsEnabled="{Binding IsConnected}"
+                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>
+                        <TextBlock Text="切换后设备会重启，SD 卡将作为 U 盘挂载" Foreground="#aaaaaa" FontSize="11" Margin="0,6,0,0"/>
+                    </StackPanel>
+                </GroupBox>
+
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- ==================== 右侧面板 ==================== -->
+        <Grid Grid.Column="1">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="200"/>
+            </Grid.RowDefinitions>
+
+            <!-- 顶部状态栏 -->
+            <Border Grid.Row="0" Background="#ffffff" CornerRadius="6" Padding="14,8" Margin="0,0,0,8"
+                    BorderBrush="#dde0e6" BorderThickness="1">
+                <StackPanel Orientation="Horizontal">
+                    <!-- 采集状态 -->
+                    <Border CornerRadius="4" Padding="10,4" Margin="0,0,12,0" BorderThickness="1">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Background" Value="#f5f5f5"/>
+                                <Setter Property="BorderBrush" Value="#e0e0e0"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding AcqRunning}" Value="True">
+                                        <Setter Property="Background" Value="#e8f5e9"/>
+                                        <Setter Property="BorderBrush" Value="#c8e6c9"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse Width="7" Height="7" Margin="0,0,6,0" VerticalAlignment="Center">
+                                <Ellipse.Style>
+                                    <Style TargetType="Ellipse">
+                                        <Setter Property="Fill" Value="#bdbdbd"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding AcqRunning}" Value="True">
+                                                <Setter Property="Fill" Value="#2e7d32"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Ellipse.Style>
+                            </Ellipse>
+                            <TextBlock Text="{Binding AcqStateText}" FontSize="12" VerticalAlignment="Center">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="#e65100"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding AcqRunning}" Value="True">
+                                                <Setter Property="Foreground" Value="#2e7d32"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- 帧计数 -->
+                    <TextBlock Text="{Binding FrameCountText}" Foreground="#8888aa" Margin="0,0,16,0" VerticalAlignment="Center" FontSize="12"/>
+
+                    <!-- 数据率 -->
+                    <Border Background="#e0f2f1" CornerRadius="3" Padding="8,2" Margin="0,0,12,0">
+                        <TextBlock Foreground="#00695c" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold">
+                            <TextBlock.Text>
+                                <MultiBinding StringFormat="{}{0:F0} Hz">
+                                    <Binding Path="DataRate"/>
+                                </MultiBinding>
+                            </TextBlock.Text>
+                        </TextBlock>
+                    </Border>
+
+                    <!-- 录制指示 -->
+                    <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" FontSize="12" FontWeight="Bold">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Text" Value=""/>
+                                <Setter Property="Foreground" Value="#c62828"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsRecording}" Value="True">
+                                        <Setter Property="Text" Value="REC"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </StackPanel>
+            </Border>
+
+            <!-- 波形显示 -->
+            <Border Grid.Row="1" BorderBrush="#dde0e6" BorderThickness="1" CornerRadius="6" Background="#ffffff">
+                <TabControl>
+                    <TabItem Header="LSM6DSOX 加速度">
+                        <oxy:PlotView Model="{Binding LsmAccPlot}" Background="#ffffff"/>
+                    </TabItem>
+                    <TabItem Header="LSM6DSOX 陀螺仪">
+                        <oxy:PlotView Model="{Binding LsmGyroPlot}" Background="#ffffff"/>
+                    </TabItem>
+                    <TabItem Header="H3LIS100DL 加速度">
+                        <oxy:PlotView Model="{Binding H3AccPlot}" Background="#ffffff"/>
+                    </TabItem>
+                    <TabItem Header="QMA6100P 加速度">
+                        <oxy:PlotView Model="{Binding QmaAccPlot}" Background="#ffffff"/>
+                    </TabItem>
+                </TabControl>
+            </Border>
+
+            <!-- 日志控制台 -->
+            <Border Grid.Row="2" Background="#1a1e24" CornerRadius="6" Margin="0,8,0,0"
+                    BorderBrush="#263238" BorderThickness="1">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <!-- 控制台标题栏 -->
+                    <Border Grid.Row="0" Background="#263238" CornerRadius="5,5,0,0" Padding="12,5">
+                        <StackPanel Orientation="Horizontal">
+                            <!-- 三个模拟终端圆点 -->
+                            <Ellipse Width="10" Height="10" Fill="#ef5350" Margin="0,0,6,0"/>
+                            <Ellipse Width="10" Height="10" Fill="#ffc107" Margin="0,0,6,0"/>
+                            <Ellipse Width="10" Height="10" Fill="#66bb6a" Margin="0,0,12,0"/>
+                            <TextBlock Text="Console  " Foreground="#546e7a" FontSize="11.5"
+                                       FontFamily="Cascadia Code, Consolas"/>
+                        </StackPanel>
+                    </Border>
+                    <!-- 日志列表 -->
+                    <ListBox Grid.Row="1" x:Name="LogListBox"
+                             Style="{StaticResource LogListBox}"
+                             ItemsSource="{Binding LogLines}">
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem" BasedOn="{StaticResource LogItem}"/>
+                        </ListBox.ItemContainerStyle>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding}" TextWrapping="Wrap"
+                                           FontFamily="Cascadia Code, Consolas" FontSize="11.5"
+                                           Foreground="#b0bec5"/>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                    <!-- 底部工具栏 -->
+                    <Border Grid.Row="2" Background="#1a1e24" CornerRadius="0,0,5,5"
+                            BorderBrush="#263238" BorderThickness="0,1,0,0" Padding="8,4">
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                            <Button Content="Clear" Style="{StaticResource BtnSm}"
+                                    Command="{Binding ClearLogCommand}"
+                                    Background="#263238" Foreground="#78909c" BorderBrush="#37474f"
+                                    Padding="10,3" FontSize="11"/>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
+</Window>
