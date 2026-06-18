@@ -169,6 +169,20 @@ namespace VibrationMonitor.Services
                             }
                         };
                     }
+                    else if (trimmed.StartsWith("mic "))
+                    {
+                        // 格式: mic en=1 sr=96000Hz gain=24dB （值可能带单位，剥非数字）
+                        var dict = ParseKeyValue(trimmed);
+                        status = status with
+                        {
+                            Config = status.Config with
+                            {
+                                MicEn = DigitsOnly(dict.GetValueOrDefault("en", "")),
+                                MicSr = DigitsOnly(dict.GetValueOrDefault("sr", "")),
+                                MicGain = DigitsOnly(dict.GetValueOrDefault("gain", ""))
+                            }
+                        };
+                    }
                 }
 
                 return status;
@@ -228,6 +242,16 @@ namespace VibrationMonitor.Services
             if (string.IsNullOrEmpty(s)) return "";
             var parts = s.Split('/');
             return index < parts.Length ? parts[index] : "";
+        }
+
+        // 保留字符串中的数字（去掉 96000Hz / 24dB 的单位后缀）
+        private static string DigitsOnly(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+            var sb = new System.Text.StringBuilder(s.Length);
+            foreach (var ch in s)
+                if (ch >= '0' && ch <= '9') sb.Append(ch);
+            return sb.ToString();
         }
     }
 }

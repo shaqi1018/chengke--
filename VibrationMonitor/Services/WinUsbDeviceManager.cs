@@ -25,7 +25,7 @@ namespace VibrationMonitor.Services
         /// false = 4/5 端点新固件(MIC=0x84, RESP=0x85)。
         /// 旧固件模式下不读 MIC 端点。
         /// </summary>
-        public static bool LegacyFirmwareMode = true;  // 临时：3端点旧固件测试(RESP=0x84,无MIC)
+        public static bool LegacyFirmwareMode = false;  // 4端点终版固件: MIC=0x84, RESP=0x85
 
         /// <summary>
         /// 跳过 MIC 端点读取（用于 5 端点固件但暂未开启 mic-over-USB 的测试，
@@ -515,13 +515,17 @@ namespace VibrationMonitor.Services
                 var sw = System.Diagnostics.Stopwatch.StartNew();
                 long lastReportMs = 0;
 
+                // 严格 FIFO 顺序回收：N 个槽轮流提交（端点始终有 N 个缓冲挂着接收，
+                // 保持高吞吐），但消费时只按提交顺序逐个等待队头槽完成。
+                // USB 单端点按提交序完成，故"按槽轮转回收"= 字节到达序 = frame_id 递增序，
+                // 绝不乱序。WaitForMultipleObjects 按事件索引而非提交序返回，会乱序——故不用。
+                int cur = 0;
                 while (_running)
                 {
-                    // 等待任意一个overlapped请求完成（不强制顺序）
-                    uint wr = NativeMethods.WaitForMultipleObjects((uint)N, evts, false, 0xFFFFFFFF);
-                    if (wr < 0 || wr >= N) break;  // WAIT_OBJECT_0..WAIT_OBJECT_0+N-1
+                    // 只等当前队头槽完成（其余槽仍在后台接收，不丢字节）
+                    uint wr = NativeMethods.WaitForSingleObject(evts[cur], 0xFFFFFFFF);
+                    if (wr != 0) break;  // 非 WAIT_OBJECT_0（错误/放弃）
 
-                    int cur = (int)wr;
                     bool ok = NativeMethods.WinUsb_GetOverlappedResult(
                         _winUsbHandle, ovl[cur], out uint transferred, true);
 
@@ -535,9 +539,10 @@ namespace VibrationMonitor.Services
                             ErrorOccurred?.Invoke($"端点 0x{endpoint:X2}({name}) 不可访问(err=87)");
                             break;
                         }
-                        // 其他错误：重置并重新提交本槽
+                        // 其他错误：重置并重新提交本槽，轮转到下一个槽
                         ZeroOverlapped(ovl[cur], ovlSize, evts[cur]);
                         SubmitRead(endpoint, ptrs[cur], (uint)bufferSize, ovl[cur]);
+                        cur = (cur + 1) % N;
                         continue;
                     }
 
@@ -581,8 +586,10 @@ namespace VibrationMonitor.Services
                         onData(chunk);
                     }
 
+                    // 重新提交本槽并轮转到下一个槽（保持 N 个缓冲常驻 + 严格 FIFO 回收）
                     ZeroOverlapped(ovl[cur], ovlSize, evts[cur]);
                     SubmitRead(endpoint, ptrs[cur], (uint)bufferSize, ovl[cur]);
+                    cur = (cur + 1) % N;
                 }
             }
             catch { }

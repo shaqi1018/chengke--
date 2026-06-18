@@ -57,6 +57,9 @@ public record SensorConfig
     public string H3Odr { get; init; } = "";
     public string QmaRange { get; init; } = "";
     public string QmaOdr { get; init; } = "";
+    public string MicEn { get; init; } = "";    // 麦克风启用 0/1
+    public string MicSr { get; init; } = "";    // 采样率 Hz
+    public string MicGain { get; init; } = "";  // 增益 dB
 }
 
 /// <summary>
