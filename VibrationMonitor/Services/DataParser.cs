@@ -69,6 +69,45 @@ namespace VibrationMonitor.Services
             catch { return null; }
         }
 
+        /// <summary>端点 0x85 — AHT20 温湿度（带 "aht," 前缀，5 字段）: aht, frame_id, datetime, temp_C, humidity</summary>
+        public static AhtSample? ParseAht(string line)
+        {
+            try
+            {
+                var p = line.Split(',');
+                // p[0]="aht", p[1]=frame_id, p[2]=datetime, p[3]=temp, p[4]=humidity
+                if (p.Length < 5) return null;
+                return new AhtSample
+                {
+                    FrameId = UInt(p[1]),
+                    Datetime = ParseDatetime(p[2]),
+                    TempC = Float(p[3]),
+                    Humidity = Float(p[4]),
+                };
+            }
+            catch { return null; }
+        }
+
+        /// <summary>端点 0x85 — LIS2MDL 磁力（带 "mag," 前缀，6 字段）: mag, frame_id, datetime, x_mG, y_mG, z_mG</summary>
+        public static MagSample? ParseMag(string line)
+        {
+            try
+            {
+                var p = line.Split(',');
+                // p[0]="mag", p[1]=frame_id, p[2]=datetime, p[3..5]=x/y/z
+                if (p.Length < 6) return null;
+                return new MagSample
+                {
+                    FrameId = UInt(p[1]),
+                    Datetime = ParseDatetime(p[2]),
+                    X = Float(p[3]),
+                    Y = Float(p[4]),
+                    Z = Float(p[5]),
+                };
+            }
+            catch { return null; }
+        }
+
         public static DeviceStatus? ParseStatusResponse(string[] lines)
         {
             try

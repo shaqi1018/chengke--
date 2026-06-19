@@ -63,6 +63,10 @@ namespace VibrationMonitor.Services
         public event Action<string>? H3LineReceived;
         public event Action<string>? QmaLineReceived;
         public event Action<string>? ResponseReceived;
+        /// <summary>AHT20 温湿度数据行（0x85 上以 "aht," 开头的包，从命令响应中分流）</summary>
+        public event Action<string>? AhtLineReceived;
+        /// <summary>LIS2MDL 磁力数据行（0x85 上以 "mag," 开头的包，从命令响应中分流）</summary>
+        public event Action<string>? MagLineReceived;
         /// <summary>麦克风原始 PCM（16-bit 小端，单声道）。参数为本次 bulk 传输的字节缓冲与有效长度。</summary>
         public event Action<byte[], int>? MicDataReceived;
         public event Action<string>? RawDataReceived;
@@ -138,7 +142,9 @@ namespace VibrationMonitor.Services
                 // 旧固件模式下 0x84 是响应端点(非MIC)，不能当数据端点配置
                 if (!LegacyFirmwareMode && !SkipMicEndpoint)
                     SetPipeTimeout(EP_MIC_IN,  0);
-                SetPipeTimeout(EP_RESP_IN, RESP_TIMEOUT_MS);
+                // 响应端点改用 overlapped 多缓冲读（消除 100Hz MAG 在浅队列上的偶发丢包），
+                // 配合无限超时(0)避免空转 churn；不开 RAW_IO 以保留任意读长（无最大包整除约束）。
+                SetPipeTimeout(EP_RESP_IN, 0);
                 SetPipeTimeout(EP_CMD_OUT, 500);
 
                 // 启用RAW_IO策略：绕过WinUSB排队，直接传递给USB驱动栈（高性能模式）。
@@ -183,8 +189,8 @@ namespace VibrationMonitor.Services
                     _micThread.Start();
                 }
 
-                // EP5(0x85) 命令响应读循环：UTF-8 解码，逐包分割
-                _respThread = new Thread(ReadLoopResp) { IsBackground = true, Name = "WinUsbReader_RESP" };
+                // EP5(0x85) 命令响应读循环：overlapped 多缓冲，UTF-8 解码，逐行分流
+                _respThread = new Thread(ReadLoopRespOverlapped) { IsBackground = true, Name = "WinUsbReader_RESP" };
                 _respThread.Start();
 
                 DeviceName = "Sensor WCID Bulk";
@@ -403,11 +409,6 @@ namespace VibrationMonitor.Services
             var buf = new byte[bufferSize];
             FileStream? rawDump = null;
 
-            // 吞吐率统计（仅LSM）- 滑动窗口计算瞬时速率
-            long intervalBytes = 0;
-            var sw = System.Diagnostics.Stopwatch.StartNew();
-            long lastReportMs = 0;
-
             try
             {
                 while (_running)
@@ -435,21 +436,6 @@ namespace VibrationMonitor.Services
                     {
                         var chunk = new byte[transferred];
                         System.Buffer.BlockCopy(buf, 0, chunk, 0, (int)transferred);
-
-                        // 吞吐率统计：LSM端点每秒报告瞬时速率
-                        if (endpoint == EP_LSM_IN)
-                        {
-                            intervalBytes += transferred;
-                            long elapsedMs = sw.ElapsedMilliseconds;
-                            if (elapsedMs - lastReportMs >= 1000)
-                            {
-                                double intervalSec = (elapsedMs - lastReportMs) / 1000.0;
-                                double throughputKBps = (intervalBytes / 1024.0) / intervalSec;
-                                ErrorOccurred?.Invoke($"[吞吐率] LSM EP1(0x81): {throughputKBps:F1} KB/s (本秒 {intervalBytes} 字节)");
-                                lastReportMs = elapsedMs;
-                                intervalBytes = 0;  // 重置区间计数
-                            }
-                        }
 
                         // 诊断：LSM 原始字节转储
                         if (endpoint == EP_LSM_IN)
@@ -513,11 +499,6 @@ namespace VibrationMonitor.Services
                     }
                 }
 
-                // 吞吐率统计（仅LSM）- 滑动窗口计算瞬时速率
-                long intervalBytes = 0;
-                var sw = System.Diagnostics.Stopwatch.StartNew();
-                long lastReportMs = 0;
-
                 // 严格 FIFO 顺序回收：N 个槽轮流提交（端点始终有 N 个缓冲挂着接收，
                 // 保持高吞吐），但消费时只按提交顺序逐个等待队头槽完成。
                 // USB 单端点按提交序完成，故"按槽轮转回收"= 字节到达序 = frame_id 递增序，
@@ -553,21 +534,6 @@ namespace VibrationMonitor.Services
                     {
                         var chunk = new byte[transferred];
                         System.Buffer.BlockCopy(bufs[cur], 0, chunk, 0, (int)transferred);
-
-                        // 吞吐率统计：LSM端点每秒报告瞬时速率
-                        if (endpoint == EP_LSM_IN)
-                        {
-                            intervalBytes += transferred;
-                            long elapsedMs = sw.ElapsedMilliseconds;
-                            if (elapsedMs - lastReportMs >= 1000)
-                            {
-                                double intervalSec = (elapsedMs - lastReportMs) / 1000.0;
-                                double throughputKBps = (intervalBytes / 1024.0) / intervalSec;
-                                ErrorOccurred?.Invoke($"[吞吐率] LSM EP1(0x81): {throughputKBps:F1} KB/s (本秒 {intervalBytes} 字节)");
-                                lastReportMs = elapsedMs;
-                                intervalBytes = 0;  // 重置区间计数
-                            }
-                        }
 
                         // 诊断：LSM 原始字节转储（ReadPipe 拿到即写，未经任何处理）
                         if (endpoint == EP_LSM_IN)
@@ -632,37 +598,131 @@ namespace VibrationMonitor.Services
             Marshal.StructureToPtr(new NativeMethods.OVERLAPPED { hEvent = hEvent }, ptr, false);
         }
 
-        // EP5(0x85) 专用：UTF-8 解码，按 \r / \n 分割，逐行触发 ResponseReceived
-        private void ReadLoopResp()
+        // EP5(0x85) 专用 overlapped 多缓冲读循环。
+        // N 个 pin 住的缓冲常驻接收（端点始终有读挂起，杜绝两次读之间的丢包窗口），
+        // 严格按提交顺序逐槽回收 → 字节到达序 = 行到达序，命令响应与 MAG/AHT 均不乱序。
+        // 不开 RAW_IO，故读长任意；每行=一个短包，512 缓冲一次取一行。跨读残行由 sb 拼接。
+        private void ReadLoopRespOverlapped()
         {
-            var buffer = new byte[64];
-            while (_running)
+            const int N = 16;            // 16 个常驻缓冲，足够吸收 100Hz MAG 突发
+            const int bufferSize = 512;  // > 最大包(64)，单行短包一次读完
+            var bufs = new byte[N][];
+            var handles = new GCHandle[N];
+            var ptrs = new IntPtr[N];
+            var ovl = new IntPtr[N];
+            var evts = new IntPtr[N];
+            int ovlSize = Marshal.SizeOf<NativeMethods.OVERLAPPED>();
+            var sb = new StringBuilder(256);   // 跨读拼接，按 \r/\n 切完整行
+
+            try
             {
-                bool ok = NativeMethods.WinUsb_ReadPipe(
-                    _winUsbHandle, EP_RESP_IN,
-                    buffer, (uint)buffer.Length,
-                    out uint transferred, IntPtr.Zero);
-
-                if (!ok)
+                for (int i = 0; i < N; i++)
                 {
-                    int err = Marshal.GetLastWin32Error();
-                    if (err == 121 || err == 995) continue;
-                    if (!_running) break;
-                    // 任何错误都只禁用 EP4，不断开其他端点
-                    ErrorOccurred?.Invoke($"响应端点错误 err={err}，命令响应通道已禁用");
-                    ResponseEndpointAvailable = false;
-                    break;
+                    bufs[i] = new byte[bufferSize];
+                    handles[i] = GCHandle.Alloc(bufs[i], GCHandleType.Pinned);
+                    ptrs[i] = handles[i].AddrOfPinnedObject();
+                    evts[i] = NativeMethods.CreateEvent(IntPtr.Zero, false, false, null);
+                    ovl[i] = Marshal.AllocHGlobal(ovlSize);
+                    ZeroOverlapped(ovl[i], ovlSize, evts[i]);
+                    if (!SubmitRead(EP_RESP_IN, ptrs[i], (uint)bufferSize, ovl[i]))
+                    {
+                        int e = Marshal.GetLastWin32Error();
+                        if (e == 87)
+                        {
+                            ErrorOccurred?.Invoke("响应端点不可访问(err=87)，命令响应通道已禁用");
+                            ResponseEndpointAvailable = false;
+                            return;
+                        }
+                    }
                 }
 
-                if (transferred == 0) continue;
-
-                var text = Encoding.UTF8.GetString(buffer, 0, (int)transferred);
-                foreach (var part in text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+                int cur = 0;
+                while (_running)
                 {
-                    var line = part.Trim();
-                    if (line.Length > 0)
-                        ResponseReceived?.Invoke(line);
+                    uint wr = NativeMethods.WaitForSingleObject(evts[cur], 0xFFFFFFFF);
+                    if (wr != 0) break;
+
+                    bool ok = NativeMethods.WinUsb_GetOverlappedResult(
+                        _winUsbHandle, ovl[cur], out uint transferred, true);
+
+                    if (!ok)
+                    {
+                        int err = Marshal.GetLastWin32Error();
+                        if (err == 995) break;       // 已中止（Disconnect）
+                        if (!_running) break;
+                        if (err == 87)
+                        {
+                            ErrorOccurred?.Invoke("响应端点错误 err=87，命令响应通道已禁用");
+                            ResponseEndpointAvailable = false;
+                            break;
+                        }
+                        // 其它错误（含超时 121）：重置并重提交本槽，轮转继续
+                        ZeroOverlapped(ovl[cur], ovlSize, evts[cur]);
+                        SubmitRead(EP_RESP_IN, ptrs[cur], (uint)bufferSize, ovl[cur]);
+                        cur = (cur + 1) % N;
+                        continue;
+                    }
+
+                    if (transferred > 0)
+                    {
+                        sb.Append(Encoding.UTF8.GetString(bufs[cur], 0, (int)transferred));
+                        DrainRespLines(sb);
+                    }
+
+                    ZeroOverlapped(ovl[cur], ovlSize, evts[cur]);
+                    SubmitRead(EP_RESP_IN, ptrs[cur], (uint)bufferSize, ovl[cur]);
+                    cur = (cur + 1) % N;
                 }
+            }
+            catch { }
+            finally
+            {
+                try { NativeMethods.WinUsb_AbortPipe(_winUsbHandle, EP_RESP_IN); } catch { }
+                for (int i = 0; i < N; i++)
+                {
+                    if (ovl[i] != IntPtr.Zero)
+                        try { NativeMethods.WinUsb_GetOverlappedResult(_winUsbHandle, ovl[i], out _, true); } catch { }
+                }
+                for (int i = 0; i < N; i++)
+                {
+                    if (ovl[i] != IntPtr.Zero) { try { Marshal.FreeHGlobal(ovl[i]); } catch { } }
+                    if (evts[i] != IntPtr.Zero) { try { NativeMethods.CloseHandle(evts[i]); } catch { } }
+                    if (handles[i].IsAllocated) handles[i].Free();
+                }
+            }
+        }
+
+        // 从拼接缓冲切出完整行（以 \r 或 \n 结尾），逐行按包首分流；尾部残行留在 sb 等下次。
+        private void DrainRespLines(StringBuilder sb)
+        {
+            while (true)
+            {
+                int nl = -1;
+                for (int i = 0; i < sb.Length; i++)
+                {
+                    char c = sb[i];
+                    if (c == '\r' || c == '\n') { nl = i; break; }
+                }
+                if (nl < 0)
+                {
+                    if (sb.Length > 8192) sb.Clear();  // 异常超长行保护
+                    return;
+                }
+
+                var line = sb.ToString(0, nl).Trim();
+                sb.Remove(0, nl + 1);
+                if (line.Length == 0) continue;
+
+                // 新固件在 0x85 上复用命令响应端点，按包首分流两路传感器数据。
+                // 严格匹配 "aht,"/"mag,"（带逗号）的数据行；status 里的 "aht "(空格)
+                // 配置行不含逗号，不会被误判，仍走 ResponseReceived → ParseStatusResponse。
+                // 必须在这里分流，避免 100Hz 磁力数据涌入命令响应缓冲、扰乱 status 解析。
+                if (line.StartsWith("aht,", StringComparison.Ordinal))
+                    AhtLineReceived?.Invoke(line);
+                else if (line.StartsWith("mag,", StringComparison.Ordinal))
+                    MagLineReceived?.Invoke(line);
+                else
+                    ResponseReceived?.Invoke(line);
             }
         }
 

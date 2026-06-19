@@ -45,6 +45,31 @@ public record QmaSample
 }
 
 /// <summary>
+/// AHT20 温湿度样本（来自命令响应端点 0x85，前缀 "aht,"，约 1Hz）
+/// aht, frame_id, YYMMDDHHMMSS, temp_C, humidity_pct
+/// </summary>
+public record AhtSample
+{
+    public uint FrameId { get; init; }
+    public DateTime Datetime { get; init; }
+    public float TempC { get; init; }       // 摄氏度
+    public float Humidity { get; init; }     // 相对湿度 %
+}
+
+/// <summary>
+/// LIS2MDL 磁力样本（来自命令响应端点 0x85，前缀 "mag,"，100Hz）
+/// mag, frame_id, YYMMDDHHMMSS, x_mG, y_mG, z_mG
+/// </summary>
+public record MagSample
+{
+    public uint FrameId { get; init; }
+    public DateTime Datetime { get; init; }
+    public float X { get; init; }   // 毫高斯 mG
+    public float Y { get; init; }
+    public float Z { get; init; }
+}
+
+/// <summary>
 /// 传感器配置信息
 /// </summary>
 public record SensorConfig

@@ -462,6 +462,42 @@
                                     Command="{Binding ApplyMicGainCommand}"/>
                         </Grid>
                         <TextBlock Text="增益 0–42 dB；配置在下次开始采集时生效" Foreground="#aaaaaa" FontSize="11" Margin="0,6,0,0"/>
+
+                        <Separator Style="{StaticResource Divider}"/>
+
+                        <!-- LIS2MDL 磁力 -->
+                        <Border Background="#fce4ec" CornerRadius="4" Padding="10,5" Margin="0,0,0,8">
+                            <DockPanel>
+                                <CheckBox DockPanel.Dock="Right" Content="启用" IsChecked="{Binding MagEnabled}"
+                                          Foreground="#ad1457" FontSize="12" VerticalAlignment="Center"/>
+                                <TextBlock Text="LIS2MDL 磁力" Foreground="#ad1457" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center"/>
+                            </DockPanel>
+                        </Border>
+                        <Grid Margin="0,0,0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="38"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="48"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="ODR" Style="{StaticResource Lbl}" VerticalAlignment="Center"/>
+                            <ComboBox Grid.Column="1" Style="{StaticResource Cb}" ItemsSource="{Binding MagOdrValues}"
+                                      SelectedItem="{Binding MagOdr}" Margin="0,0,6,0"/>
+                            <Button Grid.Column="2" Content="应用" Style="{StaticResource BtnSm}"
+                                    Command="{Binding ApplyMagOdrCommand}"/>
+                        </Grid>
+                        <TextBlock Text="三轴磁力，单位 mG；档位 10/20/50/100 Hz（经 0x85 端点）" Foreground="#aaaaaa" FontSize="11" Margin="0,0,0,4"/>
+
+                        <Separator Style="{StaticResource Divider}"/>
+
+                        <!-- AHT20 温湿度 (1Hz) -->
+                        <Border Background="#f1f8e9" CornerRadius="4" Padding="10,5" Margin="0,0,0,8">
+                            <DockPanel>
+                                <CheckBox DockPanel.Dock="Right" Content="启用" IsChecked="{Binding AhtEnabled}"
+                                          Foreground="#558b2f" FontSize="12" VerticalAlignment="Center"/>
+                                <TextBlock Text="AHT20 温湿度" Foreground="#558b2f" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center"/>
+                            </DockPanel>
+                        </Border>
+                        <TextBlock Text="温度 °C / 湿度 %，约 1Hz（经 0x85 端点）" Foreground="#aaaaaa" FontSize="11" Margin="0,0,0,0"/>
                     </StackPanel>
                 </GroupBox>
 
@@ -557,6 +593,12 @@
                         </TextBlock>
                     </Border>
 
+                    <!-- AHT20 温湿度读数 -->
+                    <Border Background="#f1f8e9" CornerRadius="3" Padding="8,2" Margin="0,0,12,0">
+                        <TextBlock Text="{Binding AhtText}" Foreground="#558b2f" VerticalAlignment="Center"
+                                   FontSize="12" FontWeight="SemiBold"/>
+                    </Border>
+
                     <!-- 录制指示 -->
                     <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" FontSize="12" FontWeight="Bold">
                         <TextBlock.Style>
@@ -588,6 +630,9 @@
                     </TabItem>
                     <TabItem Header="QMA6100P 加速度">
                         <oxy:PlotView Model="{Binding QmaAccPlot}" Background="#ffffff"/>
+                    </TabItem>
+                    <TabItem Header="LIS2MDL 磁力">
+                        <oxy:PlotView Model="{Binding MagPlot}" Background="#ffffff"/>
                     </TabItem>
                 </TabControl>
             </Border>

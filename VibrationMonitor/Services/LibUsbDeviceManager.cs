@@ -36,6 +36,8 @@ namespace VibrationMonitor.Services
         public event Action<string>? H3LineReceived;
         public event Action<string>? QmaLineReceived;
         public event Action<byte[], int>? MicDataReceived;
+        public event Action<string>? AhtLineReceived;
+        public event Action<string>? MagLineReceived;
         public event Action<string>? ResponseReceived;
         public event Action<string>? ErrorOccurred;
         public event Action<bool>? ConnectionChanged;
@@ -268,7 +270,15 @@ namespace VibrationMonitor.Services
                             buffer.RemoveRange(0, idx + 1);
 
                             string line = Encoding.UTF8.GetString(lineBytes).TrimEnd('\r');
-                            if (!string.IsNullOrWhiteSpace(line))
+                            if (string.IsNullOrWhiteSpace(line)) continue;
+
+                            // 与 WinUsbDeviceManager 一致：0x85 上按包首分流两路新传感器，
+                            // 避免 100Hz 磁力数据涌入命令响应缓冲。
+                            if (line.StartsWith("aht,", StringComparison.Ordinal))
+                                AhtLineReceived?.Invoke(line);
+                            else if (line.StartsWith("mag,", StringComparison.Ordinal))
+                                MagLineReceived?.Invoke(line);
+                            else
                                 ResponseReceived?.Invoke(line);
                         }
                     }

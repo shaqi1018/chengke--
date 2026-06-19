@@ -23,19 +23,23 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private readonly DeviceCommander _commander;
     private readonly DispatcherTimer _chartTimer;
 
-    // 三路独立数据缓冲（不再合并成一帧）
+    // 各路独立数据缓冲（不再合并成一帧）
     private readonly List<LsmSample> _lsmBuffer = new();
     private readonly List<H3Sample> _h3Buffer = new();
     private readonly List<QmaSample> _qmaBuffer = new();
+    private readonly List<MagSample> _magBuffer = new();   // LIS2MDL 磁力 100Hz
+    private readonly List<AhtSample> _ahtBuffer = new();   // AHT20 温湿度 1Hz
     private readonly object _bufferLock = new();
 
     private int _dataRateCounter;
     private DateTime _dataRateStart = DateTime.Now;
 
-    // 录制：三路各一个文件
+    // 录制：每路一个文件
     private StreamWriter? _lsmCsv;
     private StreamWriter? _h3Csv;
     private StreamWriter? _qmaCsv;
+    private StreamWriter? _magCsv;
+    private StreamWriter? _ahtCsv;
 
     // 麦克风录制：原始 PCM 落盘，停止时补写 WAV 头
     private FileStream? _micWav;
@@ -49,11 +53,13 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     public PlotModel LsmGyroPlot { get; }
     public PlotModel H3AccPlot { get; }
     public PlotModel QmaAccPlot { get; }
+    public PlotModel MagPlot { get; }
 
     private readonly LineSeries _lsmAccXSeries, _lsmAccYSeries, _lsmAccZSeries;
     private readonly LineSeries _lsmGyroXSeries, _lsmGyroYSeries, _lsmGyroZSeries;
     private readonly LineSeries _h3AccXSeries, _h3AccYSeries, _h3AccZSeries;
     private readonly LineSeries _qmaAccXSeries, _qmaAccYSeries, _qmaAccZSeries;
+    private readonly LineSeries _magXSeries, _magYSeries, _magZSeries;
 
     // === 设备发现 / 连接 ===
     public ObservableCollection<string> Ports { get; } = new();
@@ -107,6 +113,11 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private string _qmaRange = "8";
     public string QmaRange { get => _qmaRange; set => Set(ref _qmaRange, value); }
 
+    // LIS2MDL 磁力 ODR：固件吸附到最近档 10/20/50/100 Hz
+    public ObservableCollection<string> MagOdrValues { get; } = new() { "10", "20", "50", "100" };
+    private string _magOdr = "100";
+    public string MagOdr { get => _magOdr; set => Set(ref _magOdr, value); }
+
     // === 麦克风配置（端点 0x84 原始 PCM）===
     public ObservableCollection<string> MicSrValues { get; } = new() { "8000", "16000", "48000", "96000" };
     private string _micSr = "96000";
@@ -126,6 +137,14 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     public bool QmaEnabled { get => _qmaEnabled; set { if (Set(ref _qmaEnabled, value)) SendEnable("qma", value); } }
     private bool _micEnabled = true;
     public bool MicEnabled { get => _micEnabled; set { if (Set(ref _micEnabled, value)) SendEnable("mic", value); } }
+    private bool _magEnabled = true;
+    public bool MagEnabled { get => _magEnabled; set { if (Set(ref _magEnabled, value)) SendEnable("mag", value); } }
+    private bool _ahtEnabled = true;
+    public bool AhtEnabled { get => _ahtEnabled; set { if (Set(ref _ahtEnabled, value)) SendEnable("aht", value); } }
+
+    // AHT20 最新读数（1Hz），显示在顶部状态栏
+    private string _ahtText = "温湿度 --";
+    public string AhtText { get => _ahtText; set => Set(ref _ahtText, value); }
 
     // 发送启用/禁用命令；mic 走 SetMicParam，其余走 SetSensorParam。
     private void SendEnable(string sensor, bool on)
@@ -165,6 +184,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     public ICommand ApplyH3OdrCommand { get; }
     public ICommand ApplyQmaOdrCommand { get; }
     public ICommand ApplyQmaRangeCommand { get; }
+    public ICommand ApplyMagOdrCommand { get; }
     public ICommand ApplyMicGainCommand { get; }
     public ICommand ApplyMicSrCommand { get; }
     public ICommand ApplyMicEnCommand { get; }
@@ -205,6 +225,11 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         _qmaAccYSeries = AddSeries(QmaAccPlot, "Y", ColorY);
         _qmaAccZSeries = AddSeries(QmaAccPlot, "Z", ColorZ);
 
+        MagPlot = CreatePlot("LIS2MDL 磁力", "mG");
+        _magXSeries = AddSeries(MagPlot, "X", ColorX);
+        _magYSeries = AddSeries(MagPlot, "Y", ColorY);
+        _magZSeries = AddSeries(MagPlot, "Z", ColorZ);
+
         _commander = new DeviceCommander(_usb);
         _commander.LogMessage += msg =>
         {
@@ -224,6 +249,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         _usb.H3LineReceived += OnH3Line;
         _usb.QmaLineReceived += OnQmaLine;
         _usb.MicDataReceived += OnMicData;
+        _usb.MagLineReceived += OnMagLine;
+        _usb.AhtLineReceived += OnAhtLine;
         _usb.ResponseReceived += OnResponseLine;
 
         _usb.Disconnected += () =>
@@ -280,6 +307,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         ApplyH3OdrCommand = new RelayCommand(_ => _commander.SetSensorParam("h3", "odr", StripNonDigit(H3Odr)));
         ApplyQmaOdrCommand = new RelayCommand(_ => _commander.SetSensorParam("qma", "odr", StripNonDigit(QmaOdr)));
         ApplyQmaRangeCommand = new RelayCommand(_ => _commander.SetSensorParam("qma", "range", StripNonDigit(QmaRange)));
+        ApplyMagOdrCommand = new RelayCommand(_ => _commander.SetSensorParam("mag", "odr", StripNonDigit(MagOdr)));
         ApplyMicGainCommand = new RelayCommand(_ => _commander.SetMicParam("gain", StripNonDigit(MicGain)));
         ApplyMicSrCommand = new RelayCommand(_ => _commander.SetMicParam("sr", StripNonDigit(MicSr)));
         ApplyMicEnCommand = new RelayCommand(_ => _commander.SetMicParam("en", MicEnabled ? "1" : "0"));
@@ -437,22 +465,9 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         {
             var result = _commander.AcqStart(AcqSink, durationMs);
 
-            // 录制前查一次 status，用固件返回的真实 mic 采样率同步 UI，
-            // 避免 WAV 头采样率(UI默认96k)与固件实际(如48k)不一致导致时长减半。
-            try
-            {
-                var st = _commander.Status();
-                if (st != null && !string.IsNullOrEmpty(st.Config.MicSr))
-                {
-                    Application.Current?.Dispatcher.Invoke(() =>
-                    {
-                        DeviceStatus = st;
-                        MicSr = st.Config.MicSr;   // 同步真实采样率到 UI（StartMicWav 用它写 WAV 头）
-                    });
-                }
-            }
-            catch { }
-
+            // 先开录制再查状态：Status() 是阻塞收集（固定等满 ~3s）。若放在落盘之前，会把
+            // 录制起点整体推迟数秒 —— 定时采集会丢掉开头数秒（设 9s 实际只录到 6s）。
+            // 故 acq_start 一返回就立即开录，把 Status() 移到其后（其阻塞不再影响落盘起点）。
             Application.Current?.Dispatcher.BeginInvoke(() =>
             {
                 if (result)
@@ -466,6 +481,19 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
                     AcqRunning = false;
                 }
             });
+
+            // 录制已起，再查一次状态用于顶栏显示。WAV 头采样率以用户在 UI 选定的 MicSr 为准，
+            // 不用固件 status 的 mic sr 覆盖（该字段不可靠，会把 48k 误报成 96k 致回放变调）。
+            if (result)
+            {
+                try
+                {
+                    var st = _commander.Status();
+                    if (st != null)
+                        Application.Current?.Dispatcher.BeginInvoke(() => DeviceStatus = st);
+                }
+                catch { }
+            }
         });
     }
 
@@ -538,7 +566,11 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         try
         {
             var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-            var sessionDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Recordings", stamp);
+            // 单文件发布(IncludeAllContentForSelfExtract)运行时会解压到临时目录，
+            // AppDomain.BaseDirectory 指向临时解压目录而非 exe 所在目录，导致录制文件“消失”。
+            // 用 Environment.ProcessPath 取真实 exe 路径，把 Recordings 放在 exe 旁边。
+            var exeDir = Path.GetDirectoryName(Environment.ProcessPath) ?? AppContext.BaseDirectory;
+            var sessionDir = Path.Combine(exeDir, "Recordings", stamp);
             Directory.CreateDirectory(sessionDir);
 
             _lsmCsv = new StreamWriter(Path.Combine(sessionDir, "lsm.csv"));
@@ -550,11 +582,14 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             _qmaCsv = new StreamWriter(Path.Combine(sessionDir, "qma.csv"));
             _qmaCsv.WriteLine("frame_id,datetime,accX_mg,accY_mg,accZ_mg");
 
+            _magCsv = new StreamWriter(Path.Combine(sessionDir, "mag.csv"));
+            _magCsv.WriteLine("frame_id,datetime,x_mG,y_mG,z_mG");
+
+            _ahtCsv = new StreamWriter(Path.Combine(sessionDir, "aht_env.csv"));
+            _ahtCsv.WriteLine("frame_id,datetime,temp_C,humidity_pct");
+
             // 麦克风：先写占位 WAV 头（44字节），随后追加原始 PCM，停止时回填长度字段
             StartMicWav(Path.Combine(sessionDir, "mic.wav"));
-
-            // 诊断：LSM 原始字节流转储（用于分清丢帧发生在读取层还是处理层）
-            _usb.LsmRawDumpPath = Path.Combine(sessionDir, "lsm_raw.bin");
 
             IsRecording = true;
             LogLines.Add($"[REC] 开始录制 → Recordings\\{stamp}\\");
@@ -567,11 +602,11 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
 
     private void StopCsvRecording()
     {
-        foreach (var w in new[] { _lsmCsv, _h3Csv, _qmaCsv })
+        foreach (var w in new[] { _lsmCsv, _h3Csv, _qmaCsv, _magCsv, _ahtCsv })
         {
             try { w?.Flush(); w?.Dispose(); } catch { }
         }
-        _lsmCsv = _h3Csv = _qmaCsv = null;
+        _lsmCsv = _h3Csv = _qmaCsv = _magCsv = _ahtCsv = null;
         StopMicWav();
         _usb.LsmRawDumpPath = null;   // 停止原始字节转储
         IsRecording = false;
@@ -655,14 +690,18 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         LsmSample[] lsm;
         H3Sample[] h3;
         QmaSample[] qma;
+        MagSample[] mag;
+        AhtSample[] aht;
         lock (_bufferLock)
         {
             lsm = _lsmBuffer.ToArray();
             h3 = _h3Buffer.ToArray();
             qma = _qmaBuffer.ToArray();
+            mag = _magBuffer.ToArray();
+            aht = _ahtBuffer.ToArray();
         }
 
-        if (lsm.Length == 0 && h3.Length == 0 && qma.Length == 0)
+        if (lsm.Length == 0 && h3.Length == 0 && qma.Length == 0 && mag.Length == 0 && aht.Length == 0)
         {
             LogLines.Add("[EXP] 无数据可导出");
             return;
@@ -709,7 +748,25 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
                         s.FrameId, s.Datetime.ToString("yyMMddHHmmss"), s.AccX, s.AccY, s.AccZ));
             }
 
-            LogLines.Add($"[EXP] 已导出 LSM:{lsm.Length} H3:{h3.Length} QMA:{qma.Length} → {baseName}_(lsm|h3|qma).csv");
+            var magPath = Path.Combine(dir, baseName + "_mag.csv");
+            using (var w = new StreamWriter(magPath))
+            {
+                w.WriteLine("frame_id,datetime,x_mG,y_mG,z_mG");
+                foreach (var s in mag)
+                    w.WriteLine(string.Format(ci, "{0},{1},{2},{3},{4}",
+                        s.FrameId, s.Datetime.ToString("yyMMddHHmmss"), s.X, s.Y, s.Z));
+            }
+
+            var ahtPath = Path.Combine(dir, baseName + "_aht.csv");
+            using (var w = new StreamWriter(ahtPath))
+            {
+                w.WriteLine("frame_id,datetime,temp_C,humidity_pct");
+                foreach (var s in aht)
+                    w.WriteLine(string.Format(ci, "{0},{1},{2},{3}",
+                        s.FrameId, s.Datetime.ToString("yyMMddHHmmss"), s.TempC, s.Humidity));
+            }
+
+            LogLines.Add($"[EXP] 已导出 LSM:{lsm.Length} H3:{h3.Length} QMA:{qma.Length} MAG:{mag.Length} AHT:{aht.Length} → {baseName}_(lsm|h3|qma|mag|aht).csv");
         }
         catch (Exception ex)
         {
@@ -775,6 +832,52 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         try { _qmaCsv?.WriteLine(line); } catch { }
     }
 
+    // LIS2MDL 磁力（0x85 上 "mag," 分流，100Hz）。
+    private void OnMagLine(string line)
+    {
+        var s = DataParser.ParseMag(line);
+        if (s == null) return;
+        MarkData();
+        lock (_bufferLock)
+        {
+            _magBuffer.Add(s);
+            if (_magBuffer.Count > BufferCap) _magBuffer.RemoveRange(0, _magBuffer.Count - BufferCap);
+        }
+        try
+        {
+            _magCsv?.WriteLine(string.Format(CultureInfo.InvariantCulture, "{0},{1},{2},{3},{4}",
+                s.FrameId, s.Datetime.ToString("yyMMddHHmmss"), s.X, s.Y, s.Z));
+        }
+        catch { }
+    }
+
+    // AHT20 温湿度（0x85 上 "aht," 分流，约 1Hz）。更新顶部读数并入缓冲。
+    private void OnAhtLine(string line)
+    {
+        var s = DataParser.ParseAht(line);
+        if (s == null) return;
+        MarkData();
+        lock (_bufferLock)
+        {
+            _ahtBuffer.Add(s);
+            if (_ahtBuffer.Count > BufferCap) _ahtBuffer.RemoveRange(0, _ahtBuffer.Count - BufferCap);
+        }
+        try
+        {
+            _ahtCsv?.WriteLine(string.Format(CultureInfo.InvariantCulture, "{0},{1},{2},{3}",
+                s.FrameId, s.Datetime.ToString("yyMMddHHmmss"), s.TempC, s.Humidity));
+        }
+        catch { }
+
+        var temp = s.TempC; var hum = s.Humidity;
+        try
+        {
+            Application.Current?.Dispatcher.BeginInvoke(() =>
+                AhtText = string.Format(CultureInfo.InvariantCulture, "温度 {0:F1}°C  湿度 {1:F1}%", temp, hum));
+        }
+        catch { }
+    }
+
     // 麦克风原始 PCM（16-bit 小端，单声道）。录制时直接落盘，停止时补 WAV 头。
     private void OnMicData(byte[] buffer, int length)
     {
@@ -806,6 +909,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             _lsmBuffer.Clear();
             _h3Buffer.Clear();
             _qmaBuffer.Clear();
+            _magBuffer.Clear();
+            _ahtBuffer.Clear();
         }
         // 重新 acq_start 会重置下位机双缓冲，清空各端点拼接缓冲，避免跨会话残留半行
         _usb.ClearBuffers();
@@ -817,15 +922,18 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         foreach (var s in new[] { _lsmAccXSeries, _lsmAccYSeries, _lsmAccZSeries,
                                   _lsmGyroXSeries, _lsmGyroYSeries, _lsmGyroZSeries,
                                   _h3AccXSeries, _h3AccYSeries, _h3AccZSeries,
-                                  _qmaAccXSeries, _qmaAccYSeries, _qmaAccZSeries })
+                                  _qmaAccXSeries, _qmaAccYSeries, _qmaAccZSeries,
+                                  _magXSeries, _magYSeries, _magZSeries })
             s.Points.Clear();
 
         ResetAxes(LsmAccPlot);  ResetAxes(LsmGyroPlot);
         ResetAxes(H3AccPlot);   ResetAxes(QmaAccPlot);
+        ResetAxes(MagPlot);
         LsmAccPlot.InvalidatePlot(true);
         LsmGyroPlot.InvalidatePlot(true);
         H3AccPlot.InvalidatePlot(true);
         QmaAccPlot.InvalidatePlot(true);
+        MagPlot.InvalidatePlot(true);
     }
 
     private void UpdateCharts()
@@ -856,6 +964,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         LsmSample[] lsm;
         H3Sample[] h3;
         QmaSample[] qma;
+        MagSample[] mag;
         lock (_bufferLock)
         {
             if (AcqRunning)
@@ -864,6 +973,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
                 lsm = Tail(_lsmBuffer);
                 h3  = Tail(_h3Buffer);
                 qma = Tail(_qmaBuffer);
+                mag = Tail(_magBuffer);
             }
             else
             {
@@ -871,6 +981,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
                 lsm = _lsmBuffer.ToArray();
                 h3  = _h3Buffer.ToArray();
                 qma = _qmaBuffer.ToArray();
+                mag = _magBuffer.ToArray();
             }
         }
 
@@ -911,6 +1022,17 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             FillSeries(_qmaAccZSeries, qma, xt, s => s.AccZ);
             ResetAxes(QmaAccPlot);
             QmaAccPlot.InvalidatePlot(true);
+        }
+
+        if (mag.Length > 0)
+        {
+            double magOdr = double.TryParse(StripNonDigit(MagOdr), out var vm) && vm > 0 ? vm : 100;
+            var xt = BuildTimeAxis(mag, s => s.Datetime, magOdr);
+            FillSeries(_magXSeries, mag, xt, s => s.X);
+            FillSeries(_magYSeries, mag, xt, s => s.Y);
+            FillSeries(_magZSeries, mag, xt, s => s.Z);
+            ResetAxes(MagPlot);
+            MagPlot.InvalidatePlot(true);
         }
     }
 
