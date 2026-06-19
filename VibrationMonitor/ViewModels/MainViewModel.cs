@@ -121,9 +121,9 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     // === 麦克风配置（端点 0x84 原始 PCM）===
     public ObservableCollection<string> MicSrValues { get; } = new() { "8000", "16000", "48000", "96000" };
     private string _micSr = "96000";
-    public string MicSr { get => _micSr; set => Set(ref _micSr, value); }
+    public string MicSr { get => _micSr; set { if (Set(ref _micSr, value)) SaveSettings(); } }
     private string _micGain = "24";
-    public string MicGain { get => _micGain; set => Set(ref _micGain, value); }
+    public string MicGain { get => _micGain; set { if (Set(ref _micGain, value)) SaveSettings(); } }
 
     // === 传感器/麦克风启用开关：勾选即发命令（s <sensor> en 0/1），无需"应用" ===
     // 程序内部赋初值时置 true 抑制发送，仅用户交互才发命令。
@@ -205,6 +205,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
 
     public MainViewModel()
     {
+        LoadSettings();   // 恢复上次的麦克风采样率/增益，避免重开软件回默认 96000 与固件不符
+
         LsmAccPlot = CreatePlot("LSM6DSOX 加速度", "mg");
         _lsmAccXSeries = AddSeries(LsmAccPlot, "X", ColorX);
         _lsmAccYSeries = AddSeries(LsmAccPlot, "Y", ColorY);
@@ -395,6 +397,35 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         return new string(value.Where(c => char.IsDigit(c) || c == '.').ToArray());
     }
 
+    // 配置持久化：存在 exe 旁的 settings.ini（key=value），记住麦克风采样率/增益，
+    // 避免重开软件回默认 96000，与固件实际采样率不一致导致 WAV 头标错、回放变调。
+    private static string SettingsPath =>
+        Path.Combine(Path.GetDirectoryName(Environment.ProcessPath) ?? AppContext.BaseDirectory, "settings.ini");
+
+    private void LoadSettings()
+    {
+        try
+        {
+            if (!File.Exists(SettingsPath)) return;
+            foreach (var line in File.ReadAllLines(SettingsPath))
+            {
+                var i = line.IndexOf('=');
+                if (i <= 0) continue;
+                var key = line[..i].Trim();
+                var val = line[(i + 1)..].Trim();
+                if (key == "MicSr" && MicSrValues.Contains(val)) _micSr = val;
+                else if (key == "MicGain" && val.Length > 0) _micGain = val;
+            }
+        }
+        catch { }
+    }
+
+    private void SaveSettings()
+    {
+        try { File.WriteAllText(SettingsPath, $"MicSr={MicSr}\nMicGain={MicGain}\n"); }
+        catch { }
+    }
+
     private void RefreshPorts()
     {
         Ports.Clear();
@@ -463,6 +494,13 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
 
         System.Threading.Tasks.Task.Run(() =>
         {
+            // 录制前强制把 UI 选定的麦克风采样率/增益下发固件，确保固件实际录制速率与
+            // StartMicWav 写入的 WAV 头一致 —— 设备重启后固件会回默认值，不强制下发就会
+            // 出现"头=48k / 实际=96k"之类的不一致，导致回放变调。此处在 acq_start 之前，
+            // 固件尚未开流，即使命令略有耗时也不会丢数据。
+            _commander.SetMicParam("sr", StripNonDigit(MicSr));
+            _commander.SetMicParam("gain", StripNonDigit(MicGain));
+
             var result = _commander.AcqStart(AcqSink, durationMs);
 
             // 先开录制再查状态：Status() 是阻塞收集（固定等满 ~3s）。若放在落盘之前，会把
