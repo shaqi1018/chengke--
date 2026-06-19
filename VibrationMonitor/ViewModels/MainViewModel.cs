@@ -113,8 +113,32 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     public string MicSr { get => _micSr; set => Set(ref _micSr, value); }
     private string _micGain = "24";
     public string MicGain { get => _micGain; set => Set(ref _micGain, value); }
+
+    // === 传感器/麦克风启用开关：勾选即发命令（s <sensor> en 0/1），无需"应用" ===
+    // 程序内部赋初值时置 true 抑制发送，仅用户交互才发命令。
+    private bool _suppressEnableCmd;
+
+    private bool _lsmEnabled = true;
+    public bool LsmEnabled { get => _lsmEnabled; set { if (Set(ref _lsmEnabled, value)) SendEnable("lsm", value); } }
+    private bool _h3Enabled = true;
+    public bool H3Enabled { get => _h3Enabled; set { if (Set(ref _h3Enabled, value)) SendEnable("h3", value); } }
+    private bool _qmaEnabled = true;
+    public bool QmaEnabled { get => _qmaEnabled; set { if (Set(ref _qmaEnabled, value)) SendEnable("qma", value); } }
     private bool _micEnabled = true;
-    public bool MicEnabled { get => _micEnabled; set => Set(ref _micEnabled, value); }
+    public bool MicEnabled { get => _micEnabled; set { if (Set(ref _micEnabled, value)) SendEnable("mic", value); } }
+
+    // 发送启用/禁用命令；mic 走 SetMicParam，其余走 SetSensorParam。
+    private void SendEnable(string sensor, bool on)
+    {
+        if (_suppressEnableCmd) return;
+        if (!_usb.IsConnected) return;
+        var val = on ? "1" : "0";
+        System.Threading.Tasks.Task.Run(() =>
+        {
+            if (sensor == "mic") _commander.SetMicParam("en", val);
+            else _commander.SetSensorParam(sensor, "en", val);
+        });
+    }
 
     private double _dataRate;
     public double DataRate { get => _dataRate; set => Set(ref _dataRate, value); }
@@ -412,6 +436,23 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         System.Threading.Tasks.Task.Run(() =>
         {
             var result = _commander.AcqStart(AcqSink, durationMs);
+
+            // 录制前查一次 status，用固件返回的真实 mic 采样率同步 UI，
+            // 避免 WAV 头采样率(UI默认96k)与固件实际(如48k)不一致导致时长减半。
+            try
+            {
+                var st = _commander.Status();
+                if (st != null && !string.IsNullOrEmpty(st.Config.MicSr))
+                {
+                    Application.Current?.Dispatcher.Invoke(() =>
+                    {
+                        DeviceStatus = st;
+                        MicSr = st.Config.MicSr;   // 同步真实采样率到 UI（StartMicWav 用它写 WAV 头）
+                    });
+                }
+            }
+            catch { }
+
             Application.Current?.Dispatcher.BeginInvoke(() =>
             {
                 if (result)
@@ -918,11 +959,12 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private void OnPropertyChanged([CallerMemberName] string? name = null)
         => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 
-    private void Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
+    private bool Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
     {
-        if (EqualityComparer<T>.Default.Equals(field, value)) return;
+        if (EqualityComparer<T>.Default.Equals(field, value)) return false;
         field = value;
         OnPropertyChanged(name);
+        return true;
     }
 
     public void Dispose()

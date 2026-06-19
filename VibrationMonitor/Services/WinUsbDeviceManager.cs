@@ -391,7 +391,10 @@ namespace VibrationMonitor.Services
             catch { }
         }
 
-        // 同时挂起的未决读请求数。增加到32个确保USB端点始终有足够的缓冲接收
+        // 同时挂起的未决读请求数。32 个常驻接收，配合严格 FIFO 轮转回收。
+        // 实测：N=1(最串行)与 N=32 在 4 端点固件下倒退次数同量级(40 vs 51)，
+        // 证明 frame_id 倒退根因不在上位机 overlapped 并发，而在固件 4 端点版的
+        // LSM 双缓冲发送时序（3 端点固件同款代码倒退仅 1~2 次）。详见对照数据。
         private const int OVERLAP_COUNT = 32;
 
         // 同步读循环：使用超大缓冲（64KB）+ 高优先级线程减少ReadPipe调用频率

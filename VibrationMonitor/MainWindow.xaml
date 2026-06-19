@@ -345,7 +345,11 @@
                     <StackPanel>
                         <!-- LSM6DSOX -->
                         <Border Background="#e0f2f1" CornerRadius="4" Padding="10,5" Margin="0,0,0,8">
-                            <TextBlock Text="LSM6DSOX" Foreground="#00695c" FontWeight="SemiBold" FontSize="12"/>
+                            <DockPanel>
+                                <CheckBox DockPanel.Dock="Right" Content="启用" IsChecked="{Binding LsmEnabled}"
+                                          Foreground="#00695c" FontSize="12" VerticalAlignment="Center"/>
+                                <TextBlock Text="LSM6DSOX" Foreground="#00695c" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center"/>
+                            </DockPanel>
                         </Border>
                         <Grid Margin="0,0,0,6">
                             <Grid.ColumnDefinitions>
@@ -374,7 +378,11 @@
 
                         <!-- H3LIS100DL -->
                         <Border Background="#fff3e0" CornerRadius="4" Padding="10,5" Margin="0,0,0,8">
-                            <TextBlock Text="H3LIS100DL" Foreground="#e65100" FontWeight="SemiBold" FontSize="12"/>
+                            <DockPanel>
+                                <CheckBox DockPanel.Dock="Right" Content="启用" IsChecked="{Binding H3Enabled}"
+                                          Foreground="#e65100" FontSize="12" VerticalAlignment="Center"/>
+                                <TextBlock Text="H3LIS100DL" Foreground="#e65100" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center"/>
+                            </DockPanel>
                         </Border>
                         <Grid Margin="0,0,0,6">
                             <Grid.ColumnDefinitions>
@@ -393,7 +401,11 @@
 
                         <!-- QMA6100P -->
                         <Border Background="#e8f5e9" CornerRadius="4" Padding="10,5" Margin="0,0,0,8">
-                            <TextBlock Text="QMA6100P" Foreground="#2e7d32" FontWeight="SemiBold" FontSize="12"/>
+                            <DockPanel>
+                                <CheckBox DockPanel.Dock="Right" Content="启用" IsChecked="{Binding QmaEnabled}"
+                                          Foreground="#2e7d32" FontSize="12" VerticalAlignment="Center"/>
+                                <TextBlock Text="QMA6100P" Foreground="#2e7d32" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center"/>
+                            </DockPanel>
                         </Border>
                         <Grid>
                             <Grid.ColumnDefinitions>
@@ -421,7 +433,11 @@
 
                         <!-- 麦克风 -->
                         <Border Background="#e3f2fd" CornerRadius="4" Padding="10,5" Margin="0,0,0,8">
-                            <TextBlock Text="麦克风 (MIC)" Foreground="#1565c0" FontWeight="SemiBold" FontSize="12"/>
+                            <DockPanel>
+                                <CheckBox DockPanel.Dock="Right" Content="启用" IsChecked="{Binding MicEnabled}"
+                                          Foreground="#1565c0" FontSize="12" VerticalAlignment="Center"/>
+                                <TextBlock Text="麦克风 (MIC)" Foreground="#1565c0" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center"/>
+                            </DockPanel>
                         </Border>
                         <Grid>
                             <Grid.ColumnDefinitions>
@@ -430,8 +446,6 @@
                                 <ColumnDefinition Width="48"/>
                             </Grid.ColumnDefinitions>
                             <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="6"/>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="6"/>
                                 <RowDefinition Height="Auto"/>
@@ -446,10 +460,6 @@
                                      Text="{Binding MicGain}" Margin="0,0,6,0"/>
                             <Button Grid.Row="2" Grid.Column="2" Content="应用" Style="{StaticResource BtnSm}"
                                     Command="{Binding ApplyMicGainCommand}"/>
-                            <CheckBox Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="2" Content="启用麦克风"
-                                      IsChecked="{Binding MicEnabled}" Foreground="#444460" FontSize="12" VerticalAlignment="Center"/>
-                            <Button Grid.Row="4" Grid.Column="2" Content="应用" Style="{StaticResource BtnSm}"
-                                    Command="{Binding ApplyMicEnCommand}"/>
                         </Grid>
                         <TextBlock Text="增益 0–42 dB；配置在下次开始采集时生效" Foreground="#aaaaaa" FontSize="11" Margin="0,6,0,0"/>
                     </StackPanel>
