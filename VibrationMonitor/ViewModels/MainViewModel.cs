@@ -520,18 +520,6 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
                 }
             });
 
-            // 录制已起，再查一次状态用于顶栏显示。WAV 头采样率以用户在 UI 选定的 MicSr 为准，
-            // 不用固件 status 的 mic sr 覆盖（该字段不可靠，会把 48k 误报成 96k 致回放变调）。
-            if (result)
-            {
-                try
-                {
-                    var st = _commander.Status();
-                    if (st != null)
-                        Application.Current?.Dispatcher.BeginInvoke(() => DeviceStatus = st);
-                }
-                catch { }
-            }
         });
     }
 
